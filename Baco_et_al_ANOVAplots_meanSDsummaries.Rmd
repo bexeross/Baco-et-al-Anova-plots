@@ -1,0 +1,640 @@
+---
+title: "Baco et al Anova plots and mean SD summaries"
+author: Rebecca Ross
+date: "Last Rendered on `r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_notebook: 
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+    fig_width: 7
+    fig_height: 7
+always_allow_html: true 
+---
+
+This script was used to generating the ANOVA results associated with Baco et al. "Towards a Scientific Community Consensus on Designating Vulnerable Marine Ecosystems from Imagery" paper.
+
+Confessions of the coder, there are definitely some inefficiencies here: 
+
+* repeat functions are not in loops but instead coded a line per taxa
+* one anova algorithm works with plot labelling, the other with Tukey HSD, we did not find one that works with both. So we used both algorithms (but did check they gave the same result!)
+* the anova plots' Y label font size would not cooperate when the y axis was broken so those labels were replaced in a picture editor for publication figures
+
+Other notes for readers:
+
+* when viewing this script as html, the squashed look of the y axis tick labels is not evident when saved to file. 
+* the inputs and outputs are still at the original locations and are not customised for you. Please edit if you want to run this script yourself.
+
+# Libraries
+
+```{r}
+library(ggpubr)
+library(rstatix)
+library(gg.gap)
+library(tidyverse)
+
+```
+
+# Inputs
+
+Note that this is not customised for you, the reader, it is still set at the actual location of the file that was used.
+
+The input was densities table (Amy_Data_R.csv) which was harvested from "consolidated Dens data no Ken.xlsx" and R-ified (removed blank columns, removed spaces from column titles, etc)
+
+```{r}
+data.all.incLT1m2<-read.csv("I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/Amy_Data_R_noHolo.csv", sep= ",", header=TRUE, row.names=NULL)
+
+#subset to only images with field of view greater than 1m2
+data.all<-subset(data.all.incLT1m2,subset = data.all.incLT1m2$FOV_m2>1)
+
+```
+
+# Data Management
+## Tidy up
+Check columns are in the right formats, remove NAs.
+```{r}
+data.all$VME_YMN<-as.factor(data.all$VME_YMN)
+data.cln<-data.all[!is.na(data.all$VME_YMN),]
+data.cln$VME_YMN<-factor(data.cln$VME_YMN,levels=c("Y","M","N"))
+
+summary(data.cln)
+```
+
+## Subset to presence only
+I.e. ensure we ignore the 0s.
+```{r}
+data.sc<-subset(data.cln,Scleractinian>0)
+data.oc<-subset(data.cln,Octocorals>0)
+data.pn<-subset(data.cln,Pennatulacea>0)
+data.an<-subset(data.cln,Anitpatharians>0)
+data.sp<-subset(data.cln,Sponges>0)
+data.xe<-subset(data.cln,Xenophyophores>0)
+data.rf<-subset(data.cln,Scler_pc_allFramewk>0)
+data.st<-subset(data.cln,Stylasterids_Anthoathecata>0)
+
+# summary(data.sc$Scleractinian)
+# summary(data.oc$Octocorals)
+# summary(data.pn$Pennatulacea)
+# summary(data.an$Anitpatharians)
+# summary(data.sp$Sponges)
+# summary(data.xe$Xenophyophores)
+# summary(data.rf$Scler_pc_allFramewk)
+
+```
+
+# Analyses
+## Make summary stats for each taxon/category
+```{r}
+OD.stat<-data.cln%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(OverallDensity), funs(mean,sd,n(),min,max))
+TT.stat<-data.cln%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Total_taxa), funs(mean,sd,n(),min,max))
+TM.stat<-data.cln%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Taxa_per_m2), funs(mean,sd,n(),min,max))
+
+SC.stat<-data.sc%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Scleractinian), funs(mean,sd,n(),min,max))
+OC.stat<-data.oc%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Octocorals), funs(mean,sd,n(),min,max))
+PN.stat<-data.pn%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Pennatulacea), funs(mean,sd,n(),min,max))
+AN.stat<-data.an%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Anitpatharians), funs(mean,sd,n(),min,max))
+SP.stat<-data.sp%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Sponges), funs(mean,sd,n(),min,max))
+XE.stat<-data.xe%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Xenophyophores), funs(mean,sd,n(),min,max))
+RF.stat<-data.rf%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Scler_pc_allFramewk), funs(mean,sd,n(),min,max))
+
+ST.stat<-data.st%>%
+  group_by(VME_YMN) %>%
+  summarise_at(vars(Stylasterids_Anthoathecata), funs(mean,sd,n(),min,max))
+
+# view summaries
+OD.stat
+TT.stat
+TM.stat
+SC.stat
+OC.stat
+PN.stat
+AN.stat
+SP.stat
+XE.stat
+RF.stat
+ST.stat
+```
+
+## Anovas
+```{r}
+# use algorithm that can pipe to plot labels
+aov.od<-data.cln %>% anova_test(OverallDensity~VME_YMN)
+aov.tt<-data.cln %>% anova_test(Total_taxa~VME_YMN)
+aov.tm<-data.cln %>% anova_test(Taxa_per_m2 ~VME_YMN)
+aov.sc<-data.sc %>% anova_test(Scleractinian~VME_YMN)
+aov.oc<-data.oc %>% anova_test(Octocorals~VME_YMN)
+aov.pn<-data.pn %>% anova_test(Pennatulacea~VME_YMN)
+aov.an<-data.an %>% anova_test(Anitpatharians ~VME_YMN)
+aov.sp<-data.sp %>% anova_test(Sponges ~VME_YMN)
+aov.xe<-data.xe %>% anova_test(Xenophyophores~VME_YMN)
+aov.rf<-data.rf %>% anova_test(Scler_pc_allFramewk~VME_YMN)
+aov.st<-data.st %>% anova_test(Stylasterids_Anthoathecata~VME_YMN)
+
+# use algorithm that is compatible with Tukey HSD 
+aov2.od<-aov(data.cln$OverallDensity~data.cln$VME_YMN)
+aov2.tt<-aov(data.cln$Total_taxa~data.cln$VME_YMN)
+aov2.tm<-aov(data.cln$Taxa_per_m2 ~data.cln$VME_YMN)
+aov2.sc<-aov(data.sc$Scleractinian~data.sc$VME_YMN)
+aov2.oc<-aov(data.oc$Octocorals~data.oc$VME_YMN)
+aov2.pn<-aov(data.pn$Pennatulacea~data.pn$VME_YMN)
+aov2.an<-aov(data.an$Anitpatharians ~data.an$VME_YMN)
+aov2.sp<-aov(data.sp$Sponges ~data.sp$VME_YMN)
+aov2.xe<-aov(data.xe$Xenophyophores~data.xe$VME_YMN)
+aov2.rf<-aov(data.rf$Scler_pc_allFramewk~data.rf$VME_YMN)
+aov2.st<-aov(data.st$Stylasterids_Anthoathecata~data.st$VME_YMN)
+
+# check that result looks the same for all of these
+summary(aov.od)
+summary(aov.tt)
+summary(aov.tm)
+summary(aov.sc)
+summary(aov.oc)
+summary(aov.pn)
+summary(aov.an)
+summary(aov.sp)
+summary(aov.xe)
+summary(aov.rf)
+summary(aov.st)
+
+summary(aov2.od)
+summary(aov2.tt)
+summary(aov2.tm)
+summary(aov2.sc)
+summary(aov2.oc)
+summary(aov2.pn)
+summary(aov2.an)
+summary(aov2.sp)
+summary(aov2.xe)
+summary(aov2.rf)
+summary(aov2.st)
+
+```
+
+## Tukey HSD
+```{r}
+thsd.od<-tukey_hsd(aov2.od, level=.95)
+thsd.tt<-tukey_hsd(aov2.tt, level=.95)
+thsd.tm<-tukey_hsd(aov2.tm, level=.95)
+thsd.sc<-tukey_hsd(aov2.sc, level=.95)
+thsd.oc<-tukey_hsd(aov2.oc, level=.95)
+thsd.pn<-tukey_hsd(aov2.pn, level=.95)
+thsd.an<-tukey_hsd(aov2.an, level=.95)
+thsd.sp<-tukey_hsd(aov2.sp, level=.95)
+thsd.xe<-tukey_hsd(aov2.xe, level=.95)
+thsd.rf<-tukey_hsd(aov2.rf, level=.95)
+thsd.st<-tukey_hsd(aov2.st, level=.95)
+
+
+#show results
+thsd.od
+thsd.tt
+thsd.tm
+thsd.sc
+thsd.oc
+thsd.pn
+thsd.an
+thsd.sp
+thsd.xe
+thsd.rf
+thsd.st
+```
+
+
+# Plots
+
+## Overall Density
+```{r}
+bxp.od<-ggplot(data=OD.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.od,row=1, detailed =T), y="Overall Density")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(legend.position = "none") #+
+  
+  #theme(axis.title = element_text(size = 25))
+ 
+#  theme(axis.text = element_text(size = 25)) 
+
+plot(bxp.od)
+
+bxp.od.gap<-gg.gap(bxp.od,
+                   segments=c(40,100),
+                   tick_width = c(5,200),
+                   rel_heights = c(1,0,0.2),
+                   ylim=c(0,900))#,
+                   #label_size = 24)
+
+plot(bxp.od.gap)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_overall_density_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.od.gap)
+dev.off()
+```
+
+## Total Taxa
+```{r}
+bxp.tt<-ggplot(data=TT.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.tt,row=1, detailed =T), y="Total Taxa Count")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(legend.position = "none")+
+  theme(axis.line = element_line(colour = "black"),# to remove the border to match the other multipanel plots (with broken y axis)
+    panel.border = element_blank(),
+    panel.background = element_blank()) +
+  scale_y_continuous(breaks = seq(0, 10, 1))+
+    theme(plot.margin = unit(c(1.2,2.5,1.2,1.2), "cm"))
+
+
+# bxp.tt.gap<-gg.gap(bxp.tt,
+#                    segments=c(17,100),
+#                    tick_width = c(5,700),
+#                    rel_heights = c(1,0,0.2),
+#                    ylim=c(0,800))
+
+plot(bxp.tt)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_tt_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.tt)
+dev.off()
+```
+
+
+
+## Taxa per m2
+```{r}
+bxp.tm<-ggplot(data=TM.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.tm,row=1, detailed =T), y="Taxa per m2")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(legend.position = "none")
+
+
+bxp.tm.gap<-gg.gap(bxp.tm,
+                   segments=c(3,5),
+                   tick_width = c(1,5),
+                   rel_heights = c(1,0,0.2),
+                   ylim=c(0,20))
+
+plot(bxp.tm.gap)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_tm_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.tm.gap)
+dev.off()
+```
+
+## Scleractinians (solitary) - problematic!?
+```{r}
+bxp.sc<-ggplot(data=SC.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.sc,row=1, detailed =T), y="Scleractinians")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(legend.position = "none")
+
+
+bxp.sc.gap<-gg.gap(bxp.sc,
+                   segments=c(15,20),
+                   tick_width = c(1,40),
+                   rel_heights = c(1,0,0.2),
+                   ylim=c(0,100))
+
+plot(bxp.sc.gap)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_sc_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.sc.gap)
+dev.off()
+```
+
+
+## Octocorals
+```{r}
+OC.stat
+bxp.oc<-ggplot(data=OC.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.oc,row=1, detailed =T), y="Octocorals")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(legend.position = "none")
+
+
+bxp.oc.gap<-gg.gap(bxp.oc,
+                   segments=c(4.5,5),
+                   tick_width = c(1,5),
+                   rel_heights = c(1,0,0.2),
+                   ylim=c(0,25))
+
+plot(bxp.oc.gap)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_oc_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.oc.gap)
+dev.off()
+```
+
+
+## Sponges
+```{r}
+SP.stat
+
+bxp.sp<-ggplot(data=SP.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.sp,row=1, detailed =T), y="Sponges")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(legend.position = "none")
+
+
+bxp.sp.gap<-gg.gap(bxp.sp,
+                   segments=c(17,20),
+                   tick_width = c(1,50),
+                   rel_heights = c(1,0,0.2),
+                   ylim=c(0,170))
+
+plot(bxp.sp.gap)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_sp_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.sp.gap)
+dev.off()
+```
+
+## Antipatharians (problemaic?)
+```{r}
+AN.stat
+bxp.an<-ggplot(data=AN.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.an,row=1, detailed =T), y="Anipatharians")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(legend.position = "none")
+
+
+bxp.an.gap<-gg.gap(bxp.an,
+                   segments=c(1.2,2),
+                   tick_width = c(0.2,1),
+                   rel_heights = c(1,0,0.2),
+                   ylim=c(0,5))
+
+plot(bxp.an.gap)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_an_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.an.gap)
+dev.off()
+```
+
+
+
+
+## Pennatulacea
+```{r}
+PN.stat
+bxp.pn<-ggplot(data=PN.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.pn,row=1, detailed =T), y="Pennatulacea")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(axis.line = element_line(colour = "black"),# to remove the border to match the other multipanel plots (with broken y axis)
+    panel.border = element_blank(),
+    panel.background = element_blank()) +
+  theme(legend.position = "none")+
+    theme(plot.margin = unit(c(1.1,1.1,1.1,1.1), "cm"))
+
+
+# bxp.an.gap<-gg.gap(bxp.an,
+#                    segments=c(1.5,2.5),
+#                    tick_width = c(0.5,2),
+#                    rel_heights = c(1,0,0.2),
+#                    ylim=c(0,4.5))
+
+plot(bxp.pn)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_pn_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.pn)
+dev.off()
+```
+
+
+## Xenophyophores
+```{r}
+XE.stat
+bxp.xe<-ggplot(data=XE.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.pn,row=1, detailed =T), y="Xenophyophores")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(axis.line = element_line(colour = "black"),# to remove the border to match the other multipanel plots (with broken y axis)
+    panel.border = element_blank(),
+    panel.background = element_blank()) +
+  theme(legend.position = "none")+
+    theme(plot.margin = unit(c(1.1,1.1,1.1,1.1), "cm"))
+
+# bxp.an.gap<-gg.gap(bxp.an,
+#                    segments=c(1.5,2.5),
+#                    tick_width = c(0.5,2),
+#                    rel_heights = c(1,0,0.2),
+#                    ylim=c(0,4.5))
+
+plot(bxp.xe)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_xe_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.xe)
+dev.off()
+```
+
+## Reef framework
+```{r}
+RF.stat
+bxp.rf<-ggplot(data=RF.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=max,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.rf,row=1, detailed =T), y="Percent Scleractinian Framework")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(legend.position = "none")+
+  theme(axis.line = element_line(colour = "black"),# to remove the border to match the other multipanel plots (with broken y axis)
+    panel.border = element_blank(),
+    panel.background = element_blank()) +
+  scale_y_continuous(breaks = seq(0, 100, 10))+
+    theme(plot.margin = unit(c(1.1,2.5,1.1,1.1), "cm"))
+
+
+# bxp.an.gap<-gg.gap(bxp.an,
+#                    segments=c(1.5,2.5),
+#                    tick_width = c(0.5,2),
+#                    rel_heights = c(1,0,0.2),
+#                    ylim=c(0,4.5))
+
+plot(bxp.rf)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_rf_deadlive_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.rf)
+dev.off()
+```
+
+## Stylasterids
+```{r}
+ST.stat
+bxp.st<-ggplot(data=ST.stat)+
+  scale_fill_manual(values=c("#00AFBB", "#E7B800", "#FC4E07"))+
+  geom_boxplot(aes(x=VME_YMN,
+                   ymin=min,
+                   lower=mean-sd,
+                   middle=mean,
+                   upper=mean+sd,
+                   ymax=max,
+                   fill=VME_YMN), stat="identity")+
+  
+  theme_bw()+
+  theme(text = element_text(size = 25))+
+  labs(x=get_test_label(aov.rf,row=1, detailed =T), y="Stylasterids")+
+  theme(axis.title.x = element_text(margin = margin(t = 30)))+
+  theme(legend.position = "none")+
+  scale_y_continuous(breaks = seq(0, 100, 10))
+
+
+bxp.st.gap<-gg.gap(bxp.st,
+                   segments=c(11,15),
+                   tick_width = c(1,5),
+                   rel_heights = c(1,0,0.2),
+                   ylim=c(0,30))
+
+plot(bxp.st.gap)
+
+png(file="I:/Papers_development/13 Amy Baco VME skypes SUBMITTED/ANOVAplots/aov_st_msdGT1m2.png", width=8, height=8, units="in", res=500)
+plot(bxp.st.gap)
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
